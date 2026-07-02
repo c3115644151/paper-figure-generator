@@ -1,311 +1,180 @@
 ---
 name: paper-figure-generator
-description: 论文图表生成工具，覆盖统计图表（SciencePlots样式）、示意图（graphviz PNG渲染）、三线表（booktabs标准PNG）三类论文图表产出。当用户需要生成论文图表、统计图、示意图、三线表、学术图表、科研绘图、paper figure、scientific figure时使用。支持按论文期刊规范自动设置格式参数。
+description: 论文图表生成工具，覆盖统计图表（SciencePlots）、示意图（graphviz PNG渲染）、三线表（booktabs标准）三类论文图表产出。当用户需要生成论文图表、统计图、示意图、三线表、学术图表、科研绘图、paper figure、scientific figure时使用。支持按论文期刊规范自动设置分辨率(300dpi)、字体(Arial 8-12pt)、尺寸(单栏8cm/双栏17cm)、色彩(RGB/色盲友好)、格式(矢量优先)等参数。
 ---
 
-# 论文图表生成 v12
+# 论文图表生成
 
 ## 概述
 
-生成符合学术论文出版规范的图表，覆盖三类产出：
+本技能用于生成符合学术论文出版规范的图表，覆盖三类产出：
+- **统计图表**：折线图、柱状图、散点图、箱线图等（基于 matplotlib + SciencePlots）
+- **示意图**：流程图、架构图、框架图、时间线等（基于 Graphviz DOT 语言渲染为 PNG，不依赖 GPU/浏览器/X11）
+- **三线表**：符合 booktabs 规范的学术三线表（LaTeX / Markdown 双输出）
 
-- **统计图表**（11 种）：折线图 / 柱状图 / 散点图 / 箱线图 / 小提琴图 / 直方图 / 热力图 / 分组柱状图 / 面积图 / 误差棒图 / 多面板组合图
-- **示意图**（3 种）：流程图 / 架构图 / 流水线图（graphviz DOT 引擎 PNG 渲染）
-- **三线表 PNG**：严格 booktabs + GB/T 7714-2015 规范，论文可直接使用的渲染图
+## 通用论文规范（所有图表必须遵循）
 
-所有图表输出为 **300 DPI PNG**，论文可直接使用。
-
-## 核心原则
-
-1. 统计图必须使用 `plt.style.context([style, 'no-latex'])`，style 可选 'science'/'nature'/'ieee'。禁止手动 rcParams。
-2. 默认英文标签。用户明确要求中文时才尝试。
-3. 箱线图默认 `showfliers=False`，`showmeans=True`。
-4. 色盲友好配色（SciencePlots 默认 Okabe-Ito 标准）。
-5. 300dpi 输出，格式 PNG。示意图通过 Pillow 回写 DPI 元数据。
-6. 所有函数在 `main.py` 中实现。使用前调 `try_install_scienceplots()`。
-
-## 样式选择指南
-
-| 样式 | 适用期刊 | 特点 |
-|------|---------|------|
-| `science` | 通用学术 | 浅灰网格，衬线字体，刻度向内含次刻度 |
-| `nature` | Nature / Science / Cell | 无网格，无衬线字体（Helvetica），7pt 字号 |
-| `ieee` | IEEE / 工程类 | 紧凑双栏，Times 字体，600dpi，线型 + 颜色双重编码 |
-
-## 三线表 PNG（v9 核心改进）
-
-### 严格 booktabs + GB/T 7714-2015 规范
-
-`df_to_table_png(df, caption="", column="single", output_path="table.png")`
-
-**三线结构（精确到 pt）：**
-
-| 线 | 位置 | 线宽 | 规范来源 |
-|---|------|------|---------|
-| 顶线（\toprule） | 表头顶部 | 0.8pt | booktabs \heavyrulewidth |
-| 栏目线（\midrule） | 表头底部与数据行之间 | 0.5pt | booktabs \lightrulewidth |
-| 底线（\bottomrule） | 末行数据底部 | 0.8pt | booktabs \heavyrulewidth |
-| 禁止任何垂直线/行间横线 | — | — | booktabs: Never use vertical rules |
-
-**垂直间距（基于 booktabs 标准 @8pt 字体）：**
-
-| 位置 | 间距 |
-|------|------|
-| 顶线 → 表头文字 | 5pt（\belowrulesep ≈ 0.65ex） |
-| 表头文字 → 栏目线 | 3pt（\aboverulesep ≈ 0.4ex） |
-| 栏目线 → 首行数据 | 5pt（\belowrulesep） |
-| 末行数据 → 底线 | 3pt（\aboverulesep） |
-| 数据行之间 | 紧密排列（无空行） |
-
-**列排版：**
-
-- **所有列**默认居中对齐（`ha="center"`），列类型自动检测后统一居中
-- 列间距：`\tabcolsep = 3pt/侧`，每列内容宽度 + 6pt 间距
-
-**字体：**
-
-| 元素 | 字重 | 字号 |
-|------|------|------|
-| 表头 | 加粗 | 7pt |
-| 表身数据 | 正常 | 7pt |
-| caption | 加粗 | 8pt |
-
-**渲染引擎：**
-
-基于 `ax.text()` + `ax.hlines()` 手动渲染，坐标以英寸为单位精确计算：
-- 列宽通过 `get_window_extent()` 实际测量文本宽度 + `\tabcolsep`
-- 线位置按 booktabs 间距公式精确定位
-- 300 DPI 输出，宽度：单栏 3.5in / 双栏 6.69in
-
-**调用示例：**
-
-```python
-from main import df_to_table_png
-import pandas as pd
-
-df = pd.DataFrame({
-    'Method': ['CNN', 'ResNet-50', 'ViT-B/16'],
-    'Acc.(%)': [78.3, 82.1, 85.7],
-    'Params(M)': [1.2, 25.6, 86.0],
-})
-path = df_to_table_png(df, caption='Table 1. Comparison.',
-                       column='single', output_path='table.png')
-# → 论文级三线表 PNG，300 DPI
-```
-
-## 示意图（graphviz DOT 引擎 + 300 DPI）
-
-### 三种预设结构
-
-| 函数 | 布局 | 适用场景 |
-|------|------|---------|
-| `generate_flowchart_png(steps, column, path)` | TB 纵向 | 数据处理流程、实验步骤 |
-| `generate_architecture_png(layers, column, path)` | 子图集群 | 系统架构、网络结构 |
-| `generate_pipeline_png(modules, column, path)` | LR 横向 | 流水线、训练管线 |
-
-### 统一标准（论文灰阶方案 v10）
-
-- **DPI**：300（graphviz 渲染后通过 Pillow 回写 DPI 元数据）
-- **字体**：Helvetica（sans-serif），节点 9pt #000000，边标签 7pt #555555
-- **节点边框**：0.8pt 圆角矩形 #2C2C2C / 菱形判断节点
-- **箭边**：正交连线（`splines="ortho"`），0.6pt #555555，arrowsize=0.7
-- **配色**：论文标准灰阶方案 — 输入白/处理浅灰/输出中灰/判断白菱形/默认白灰边框。三档灰度保证彩色+B&W印刷均清晰可辨
-
-### 三线表 PNG 统一标准（booktabs + GB/T 7714）
-
-- **DPI**：300
-- **字体**：sans-serif，表头/表身 7pt，caption 8pt bold
-- **线结构**：顶线 0.8pt + 栏目线 0.5pt + 底线 0.8pt（无垂直线/行间线）
-- **列对齐**：所有列默认居中对齐
-- **列间距**：\tabcolsep = 3pt/侧
-- **垂直间距**：\belowrulesep ≈ 5pt, \aboverulesep ≈ 3pt
-- **caption 位置**：表格正上方，caption 基线到顶线间距 6pt（论文标准规范）
+1. **分辨率**：≥300 dpi，线条图 600-1200 dpi
+2. **格式**：矢量格式优先（PDF/SVG）；位图用 TIFF（LZW压缩），禁用 JPEG
+3. **字体**：Arial 8-12pt，所有字体必须嵌入
+4. **颜色**：RGB 模式，色盲友好（避免红绿对比，用蓝橙替代）
+5. **尺寸**：单栏 8-8.5cm（3.15-3.35in），双栏 17-17.8cm（6.69-7.0in）
+6. **轴标签**：包含变量名和单位，如"时间 (s)"
+7. **图例**：放在图内空白区域，不遮挡数据
+8. **标记点**：优先用几何形状（○□△◇），不用颜色作为唯一区分
 
 ## 工作流程
 
-### 第一步：解析需求
+### 第一步：理解需求
 
-收到用户请求后，先做以下判断：
+解析用户输入，提取：
+1. **图表类型**：统计图 / 示意图 / 三线表 / 混合
+2. **数据来源**：用户提供的数据（文本/表格/文件）或需要示例数据
+3. **输出格式**：用户指定的格式，或在文件生成时使用默认格式
+4. **期刊要求**：如有明确期刊（如 Nature / IEEE / Science），按对应模板调整
 
-**1.1 确定图表类型**
+### 第二步：生成统计图表（调用 main.py 辅助函数）
 
-| 用户说的关键词 | 归类 | 典型场景 |
-|---|---|---|
-| 折线图、趋势图、曲线 | 统计图（折线图） | 损失曲线、时间序列 |
-| 柱状图、条形图、直方图 | 统计图（柱状图/直方图） | 对比实验结果 |
-| 散点图、相关性 | 统计图（散点图） | 回归分析、相关性 |
-| 箱线图、盒须图、离群值 | 统计图（箱线图） | 分布对比 |
-| 小提琴图 | 统计图（小提琴图） | 分布+密度 |
-| 热力图、相关性矩阵、混淆矩阵 | 统计图（热力图） | 特征相关性、分类结果 |
-| 面积图、堆积图 | 统计图（面积图） | 累积变化 |
-| 误差棒、error bar | 统计图（误差棒图） | 带误差的对比 |
-| 多面板、子图组合 | 统计图（多面板组合图） | 综合展示 |
-| 流程图、框图 | 示意图（流程图） | 数据处理流程、算法步骤 |
-| 架构图、网络结构 | 示意图（架构图） | 系统架构、模型结构 |
-| 流水线、pipeline | 示意图（流水线图） | 训练管线、工作流 |
-| 三线表、booktabs、表格图 | 三线表 PNG | 结果对比表、参数表 |
+适用场景：折线图、柱状图、散点图、箱线图、小提琴图、直方图、热力图
 
-**1.2 提取关键参数**
+执行步骤：
+1. 导入 `main.py` 中的辅助函数
+2. 用 `setup_science_style(style, column)` 设置论文规范和样式
+3. 用 matplotlib 绘制图表，遵循论文规范
+4. 用 `save_paper_figure(fig, output_path)` 保存
+5. 输出文件路径和简要说明给用户
 
+样式选择指南：
+- `science`：通用学术风格（默认）
+- `ieee`：IEEE 期刊（双栏紧凑）
+- `nature`：Nature 风格（简洁，无网格）
+- `high-vis`：高对比度，适合展示/PPT
+
+### 第三步：生成示意图（Graphviz DOT → PNG）
+
+适用场景：框架图、流程图、架构图、时间线、模型结构图、层级结构图
+
+**核心逻辑**：用 DOT 语言描述图结构（节点关系），调用 graphviz `dot` 命令直接渲染为标准 PNG。DOT 是结构化描述语言，AI 天然擅长生成；Graphviz 是矢量渲染引擎，不依赖 GPU/浏览器/X11，在沙箱环境中可直接运行。
+
+执行步骤：
+
+**步骤 3a：确保 graphviz 已安装**
+```bash
+which dot || apt-get install -y graphviz
 ```
-- 数据来源：用户提供 → 解析数据；未提供 → 生成示例数据
-- 期刊/会议：如 Nature/Science/IEEE → 对应 style；未指定 → 通用 science 样式
-- 版式：单栏（3.5in）或双栏（6.69in）；未指定 → 单栏
-- 中/英文：默认英文；用户明确要求中文时才尝试
-- 输出格式：PNG（默认）；用户要求 SVG/PDF 时告知转换方式
+
+**步骤 3b：编写 DOT 描述**
+
+DOT 基本语法如下。根据用户需求的结构关系生成完整 DOT 文本：
+
+```dot
+digraph 图名 {
+    rankdir=TB;          // 方向：TB=自上而下, LR=自左向右
+    splines=ortho;       // 连线风格：ortho=直角
+    compound=true;       // 允许子图间连线
+    bgcolor="white";
+    fontname="Noto Sans CJK SC";
+
+    node [fontname="Noto Sans CJK SC", fontsize=9, shape=box, style="filled,rounded"];
+    edge [color="#666666", penwidth=1.0];
+
+    A [label="节点A", fillcolor="#F0F0F0"];
+    B [label="节点B", fillcolor="#E0E0E0"];
+    A -> B;
+}
 ```
 
-**1.3 数据获取优先级**
+**灰度配色规范（经济学/社科论文默认）：**
 
-1. 用户明确提供数据（表格、CSV、描述中的数值）→ 解析后传入
-2. 用户有文件附件（CSV/Excel）→ 先读取解析
-3. 用户未提供数据 → 函数自动生成 `np.random.seed(42)` 示例数据，并标注"使用随机示例数据"
+| 层级 | 填充色 | 边框色 | 用途 |
+|------|--------|--------|------|
+| 最浅 | #F8F8F8 | #AAAAAA | 背景/外部输入 |
+| 浅 | #F0F0F0 | #888888 | 初级节点 |
+| 中浅 | #E8E8E8 | #777777 | 二级节点 |
+| 中 | #E0E0E0 | #666666 | 核心节点 |
+| 中深 | #D8D8D8 | #555555 | 重要节点 |
+| 深 | #CCCCCC | #333333 | 强调节点/终点 |
 
----
+子图分组用 `subgraph cluster_xxx {}`，核心分组用 style=solid，次要分组用 style=dashed。
 
-### 第二步：加载技能并调用函数
+节点内换行使用 HTML-like label：`label=<行1<br/>行2>`
 
-**2.1 三线表 PNG**
+**步骤 3c：渲染为 PNG**
+```bash
+dot -Tpng input.dot -o output.png -Gdpi=300 -Gsize=6.65,5
+```
+- 双栏图宽 16.9cm → `-Gsize=6.65,高度`
+- 单栏图宽 8cm → `-Gsize=3.15,高度`
+- 高度设充裕值让 Graphviz 自由布局，最终用 PIL 读取实际尺寸
 
+**步骤 3d：验证物理尺寸**
 ```python
-from main import df_to_table_png
-
-# 1) 构造 DataFrame
-import pandas as pd
-df = pd.DataFrame({
-    'Method': ['CNN', 'ResNet-50', 'ViT-B/16'],
-    'Acc.(%)': [78.3, 82.1, 85.7],
-    'Params(M)': [1.2, 25.6, 86.0],
-})
-
-# 2) 生成 PNG（论文直接可用）
-path = df_to_table_png(
-    df,
-    caption='Table 1. Comparison of backbone models.',
-    column='single',     # 'single' | 'double'
-    output_path='table.png'
-)
+from PIL import Image
+img = Image.open('output.png')
+w_cm = img.size[0]/300*2.54
+h_cm = img.size[1]/300*2.54
+print(f'{w_cm:.1f}x{h_cm:.1f}cm @300dpi')
 ```
 
-**2.2 示意图（graphviz）**
+### 第四步：生成三线表（booktabs LaTeX / Markdown）
 
-```python
-from main import generate_flowchart_png
-from main import generate_architecture_png
-from main import generate_pipeline_png
+适用场景：实验结果表、数据汇总表、对比分析表、统计描述表
 
-# 流程图 — TB 纵向布局
-path = generate_flowchart_png(
-    steps=[
-        "Raw Data",
-        ("Preprocessing", "process"),
-        ("Feature Extraction", "process"),
-        "Classification",
-        "Results"
-    ],
-    column='single',
-    path='flowchart.png'
-)
+常见三线表类型和列格式：
+- 实验对比表：`lcccc`（左列文本+居中数值列）
+- 统计描述表：`lrrr`（左列+右对齐数值列）
+- 参数设置表：`llc`（多列文本）
+- 混淆矩阵：`lccccc`（首列标签+多列分类）
 
-# 架构图 — 子图集群布局
-path = generate_architecture_png(
-    layers=[
-        ("Input Layer", ["RGB Image 224×224", "Normalization"]),
-        ("Backbone", ["ResNet-50", "Stage 1-4", "Avg Pooling"]),
-        ("Head", ["FC 2048", "Dropout 0.5", "FC 1000"]),
-        ("Output", ["Softmax", "Predictions"]),
-    ],
-    column='single',
-    path='architecture.png'
-)
+执行步骤：
+1. 将用户数据整理为 pandas DataFrame
+2. 判断输出场景：
+   - 用户使用 LaTeX 写作 → 用 `dataframe_to_booktabs()` 生成完整 LaTeX 代码
+   - 用户使用 Markdown / 非 LaTeX 写作 → 用 `dataframe_to_markdown_table()` 生成 Markdown 表格
+   - 不确定时 → 同时输出 LaTeX 和 Markdown 两种格式
+3. 表头中学术符号自动转换：±→$\\pm$，α→$\\alpha$ 等
+4. 添加表注说明（如"注：数值为均值±标准差"）
 
-# 流水线图 — LR 横向布局
-path = generate_pipeline_png(
-    modules=[
-        "Data Loader",
-        ("Feature Extractor", "process"),
-        "Model Inference",
-        ("Post-process", "process"),
-        "Output"
-    ],
-    column='single',
-    path='pipeline.png'
-)
-```
+### 第五步：输出与交付
 
-各函数的 `steps`/`layers`/`modules` 参数接受字符串列表，支持用 `("Node Name", "type")` 元组指定节点类型（`"input"` / `"process"` / `"output"` / `"decision"`），不指定类型时自动根据位置推断。
+1. **统计图表**：输出 `.png` 图像文件路径，同时说明尺寸、分辨率、样式
+2. **示意图**：输出 `.png` 图片文件路径，说明尺寸、分辨率、配色方案
+3. **三线表**：直接展示 LaTeX/Markdown 代码，同时输出 `.tex` 或 `.md` 文件
+4. 每次生成后，简要标注关键格式参数以供用户核验
 
-**2.3 统计图表（11 种）**
+## 示例场景
 
-```python
-from main import (
-    generate_line_chart,
-    generate_bar_chart,
-    generate_scatter_chart,
-    generate_box_plot,
-    generate_violin_plot,
-    generate_histogram,
-    generate_heatmap,
-    generate_grouped_bar_chart,
-    generate_area_chart,
-    generate_error_bar_chart,
-    generate_multi_panel_figure,
-)
+### 示例 1：生成论文折线图
+> 用户："用示例数据生成一张折线图，对比两组实验结果"
+> 输出：science样式折线图，x轴"时间 (s)"，y轴"幅值"，300dpi，单栏宽度
 
-# 通用调用签名
-path = generate_line_chart(
-    data=None,             # DataFrame 或 None（自动示例数据）
-    style="science",       # "science" | "nature" | "ieee"
-    column="single",       # "single" | "double"
-    output_path="fig.png"
-)
-```
+### 示例 2：生成示意图
+> 用户："画一个简单的模型架构图：输入→特征提取→分类器→输出"
+> 输出：标准 PNG 图片，16.9cm宽，300dpi，灰度配色，4节点+3箭头
 
-所有统计图函数签名一致（`data`, `style`, `column`, `output_path`），可一键替换图表类型。
-
----
-
-### 第三步：输出与交付
-
-**3.1 交付物清单**
-
-| 类型 | 文件 | 说明 |
-|------|------|------|
-| 统计图 | `*.png` | 300 DPI，已回写 DPI 元数据 |
-| 三线表 | `*.png` | 论文直接可用，booktabs 标准 |
-| 示意图 | `*.png` | 300 DPI，graphviz 渲染 + Pillow 回写 |
-| 三线表 TeX | `*.tex` | 可选输出，`save_table_tex()` |
-
-**3.2 验证清单（每次交付前检查）**
-
-口 PNG 文件已生成且 >0 KB
-口 DPI 为 300（Pillow 回写验证通过）
-口 统计图使用 `plt.style.context()`，无手动 rcParams
-口 三线表三线结构正确（顶线 0.8pt / 栏目线 0.5pt / 底线 0.8pt），无垂直线
-口 示意图灰阶方案正确（白#FFF / 浅灰#EFEFEF / 中灰#DFDFDF）
-口 文件路径可访问，使用 `computer://` 协议交付
-
-**3.3 向用户说明的内容**
-
-- 图表类型、使用样式（science/nature/ieee）
-- 版式（单栏/双栏）
-- 如果是示例数据需注明
-- 交付文件路径
-
----
-
-### 第四步：用户修改
-
-用户提出修改意见时：
-1. **仅修改用户指定的具体细节**（颜色不对只改颜色，对齐不对只改对齐）
-2. 不连带调整未涉及的参数或风格
-3. 重新生成后再次交付验证
-4. 多次迭代后如修改效果不理想，告知用户当前限制并提供替代方案
+### 示例 3：生成三线表
+> 用户："把这几组实验数据做成三线表：方法A 85.2±1.3, 方法B 91.5±0.8, 方法C 88.7±1.1"
+> 输出：LaTeX booktabs 代码 + Markdown 表格
 
 ## 边界情况处理
 
-- **数据量过大**：调用端采样后传入，标注采样方法
-- **缺失数据**：虚线连接或标注缺失区域
-- **无数据**：`data=None` 自动生成示例数据
-- **依赖缺失**：`try_install_scienceplots()` 自动安装
-- **中文需求**：默认英文，仅用户明确要求时尝试
+- **数据量过大**（>10000点）：随机采样或聚合后再绘图，标注采样方法
+- **缺失数据**：在图中标注缺失区域，用虚线连接
+- **负值数据**：柱状图用不同颜色区分正负
+- **用户无数据**：使用 `generate_sample_data()` 生成示例数据，标注"示例数据"
+- **SciencePlots 未安装**：自动 `pip install scienceplots` 后再继续
+- **期刊要求不明确**：默认使用通用学术规范（science样式，单栏）
+- **graphviz 未安装**：自动 `apt-get install -y graphviz` 安装
+- **DOT 语法错误**：先检查括号和引号是否闭合；用 `dot -Tdot input.dot` 验证语法
+- **中文字体渲染**：使用 Noto Sans CJK SC（已系统安装），回退到 WenQuanYi Micro Hei
+- **经济学/社科论文**：默认灰度配色方案；用户明确要求彩色时使用低饱和度配色
+- **渲染后尺寸过大**：超过 A4 页面高度（27cm）时改用横向布局（rankdir=LR）
+
+## 注意事项
+
+- 所有图表文件生成在 Agent 工作目录下，文件名带时间戳和图表类型标识
+- 不要猜测期刊格式要求——如果用户未指定期刊，使用通用规范
+- 三线表严格遵守 toprule/midrule/bottomrule 三条线规则，不加竖线
+- 示意图使用论文友好的灰度配色（经济学/社科默认）或低饱和度彩色配色
+- 示意图渲染依赖本地 `dot` 命令（Graphviz），无需 GPU/浏览器/X11
+- 涉及中文的 DOT 描述必须指定 fontname="Noto Sans CJK SC"，英文内容使用 Arial
