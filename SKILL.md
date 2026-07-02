@@ -3,7 +3,7 @@ name: paper-figure-generator
 description: 论文图表生成工具，覆盖统计图表（SciencePlots样式）、示意图（graphviz PNG渲染）、三线表（booktabs标准PNG）三类论文图表产出。当用户需要生成论文图表、统计图、示意图、三线表、学术图表、科研绘图、paper figure、scientific figure时使用。支持按论文期刊规范自动设置格式参数。
 ---
 
-# 论文图表生成 v11
+# 论文图表生成 v12
 
 ## 概述
 
@@ -123,61 +123,184 @@ path = df_to_table_png(df, caption='Table 1. Comparison.',
 
 ## 工作流程
 
-### 第一步：理解需求
+### 第一步：解析需求
 
-解析用户输入，提取：图表类型、数据来源、期刊要求、输出格式。数据不足时函数内部生成 `np.random.seed(42)` 示例数据。
+收到用户请求后，先做以下判断：
 
-### 第二步：选择类型并调用函数
+**1.1 确定图表类型**
 
-#### 统计图表
+| 用户说的关键词 | 归类 | 典型场景 |
+|---|---|---|
+| 折线图、趋势图、曲线 | 统计图（折线图） | 损失曲线、时间序列 |
+| 柱状图、条形图、直方图 | 统计图（柱状图/直方图） | 对比实验结果 |
+| 散点图、相关性 | 统计图（散点图） | 回归分析、相关性 |
+| 箱线图、盒须图、离群值 | 统计图（箱线图） | 分布对比 |
+| 小提琴图 | 统计图（小提琴图） | 分布+密度 |
+| 热力图、相关性矩阵、混淆矩阵 | 统计图（热力图） | 特征相关性、分类结果 |
+| 面积图、堆积图 | 统计图（面积图） | 累积变化 |
+| 误差棒、error bar | 统计图（误差棒图） | 带误差的对比 |
+| 多面板、子图组合 | 统计图（多面板组合图） | 综合展示 |
+| 流程图、框图 | 示意图（流程图） | 数据处理流程、算法步骤 |
+| 架构图、网络结构 | 示意图（架构图） | 系统架构、模型结构 |
+| 流水线、pipeline | 示意图（流水线图） | 训练管线、工作流 |
+| 三线表、booktabs、表格图 | 三线表 PNG | 结果对比表、参数表 |
 
-**通用调用：**
-```python
-from main import generate_line_chart
-path = generate_line_chart(data=None, style="science",
-                           column="single", output_path="fig.png")
+**1.2 提取关键参数**
+
+```
+- 数据来源：用户提供 → 解析数据；未提供 → 生成示例数据
+- 期刊/会议：如 Nature/Science/IEEE → 对应 style；未指定 → 通用 science 样式
+- 版式：单栏（3.5in）或双栏（6.69in）；未指定 → 单栏
+- 中/英文：默认英文；用户明确要求中文时才尝试
+- 输出格式：PNG（默认）；用户要求 SVG/PDF 时告知转换方式
 ```
 
-**各图表类型：** 折线图 / 柱状图 / 散点图 / 箱线图 / 小提琴图 / 直方图 / 热力图 / 分组柱状图 / 面积图 / 误差棒图 / 多面板组合图
+**1.3 数据获取优先级**
 
-#### 三线表 PNG
+1. 用户明确提供数据（表格、CSV、描述中的数值）→ 解析后传入
+2. 用户有文件附件（CSV/Excel）→ 先读取解析
+3. 用户未提供数据 → 函数自动生成 `np.random.seed(42)` 示例数据，并标注"使用随机示例数据"
+
+---
+
+### 第二步：加载技能并调用函数
+
+**2.1 三线表 PNG**
 
 ```python
 from main import df_to_table_png
-from main import df_to_booktabs, save_table_tex  # LaTeX 代码
 
-# PNG 渲染（论文可直接使用）
-path = df_to_table_png(df, caption="Table 1.", column="single")
+# 1) 构造 DataFrame
+import pandas as pd
+df = pd.DataFrame({
+    'Method': ['CNN', 'ResNet-50', 'ViT-B/16'],
+    'Acc.(%)': [78.3, 82.1, 85.7],
+    'Params(M)': [1.2, 25.6, 86.0],
+})
 
-# 同步输出 LaTeX 代码
-tex = df_to_booktabs(df, caption="Table 1.", label="tab:1")
-save_table_tex(tex, "table.tex")
+# 2) 生成 PNG（论文直接可用）
+path = df_to_table_png(
+    df,
+    caption='Table 1. Comparison of backbone models.',
+    column='single',     # 'single' | 'double'
+    output_path='table.png'
+)
 ```
 
-#### 示意图
+**2.2 示意图（graphviz）**
 
 ```python
-from main import generate_flowchart_png, generate_architecture_png, generate_pipeline_png
+from main import generate_flowchart_png
+from main import generate_architecture_png
+from main import generate_pipeline_png
 
-# 流程图（纵向）
-path = generate_flowchart_png(column="single")
+# 流程图 — TB 纵向布局
+path = generate_flowchart_png(
+    steps=[
+        "Raw Data",
+        ("Preprocessing", "process"),
+        ("Feature Extraction", "process"),
+        "Classification",
+        "Results"
+    ],
+    column='single',
+    path='flowchart.png'
+)
 
-# 架构图（子图集群）
-path = generate_architecture_png(column="single")
+# 架构图 — 子图集群布局
+path = generate_architecture_png(
+    layers=[
+        ("Input Layer", ["RGB Image 224×224", "Normalization"]),
+        ("Backbone", ["ResNet-50", "Stage 1-4", "Avg Pooling"]),
+        ("Head", ["FC 2048", "Dropout 0.5", "FC 1000"]),
+        ("Output", ["Softmax", "Predictions"]),
+    ],
+    column='single',
+    path='architecture.png'
+)
 
-# 流水线图（横向）
-path = generate_pipeline_png(column="single")
+# 流水线图 — LR 横向布局
+path = generate_pipeline_png(
+    modules=[
+        "Data Loader",
+        ("Feature Extractor", "process"),
+        "Model Inference",
+        ("Post-process", "process"),
+        "Output"
+    ],
+    column='single',
+    path='pipeline.png'
+)
 ```
+
+各函数的 `steps`/`layers`/`modules` 参数接受字符串列表，支持用 `("Node Name", "type")` 元组指定节点类型（`"input"` / `"process"` / `"output"` / `"decision"`），不指定类型时自动根据位置推断。
+
+**2.3 统计图表（11 种）**
+
+```python
+from main import (
+    generate_line_chart,
+    generate_bar_chart,
+    generate_scatter_chart,
+    generate_box_plot,
+    generate_violin_plot,
+    generate_histogram,
+    generate_heatmap,
+    generate_grouped_bar_chart,
+    generate_area_chart,
+    generate_error_bar_chart,
+    generate_multi_panel_figure,
+)
+
+# 通用调用签名
+path = generate_line_chart(
+    data=None,             # DataFrame 或 None（自动示例数据）
+    style="science",       # "science" | "nature" | "ieee"
+    column="single",       # "single" | "double"
+    output_path="fig.png"
+)
+```
+
+所有统计图函数签名一致（`data`, `style`, `column`, `output_path`），可一键替换图表类型。
+
+---
 
 ### 第三步：输出与交付
 
-| 类型 | 交付物 | 说明 |
-|------|--------|------|
-| 统计图 | `.png` | 标注尺寸/样式/分辨率，300 DPI |
-| 三线表 | `.png` + `.tex` | PNG 为论文直接可用图，TeX 为 LaTeX 源码 |
-| 示意图 | `.png` | 300 DPI，graphviz 引擎 |
+**3.1 交付物清单**
 
-如需矢量格式（PDF/SVG 投稿），告知用户调整 `format` 参数。
+| 类型 | 文件 | 说明 |
+|------|------|------|
+| 统计图 | `*.png` | 300 DPI，已回写 DPI 元数据 |
+| 三线表 | `*.png` | 论文直接可用，booktabs 标准 |
+| 示意图 | `*.png` | 300 DPI，graphviz 渲染 + Pillow 回写 |
+| 三线表 TeX | `*.tex` | 可选输出，`save_table_tex()` |
+
+**3.2 验证清单（每次交付前检查）**
+
+口 PNG 文件已生成且 >0 KB
+口 DPI 为 300（Pillow 回写验证通过）
+口 统计图使用 `plt.style.context()`，无手动 rcParams
+口 三线表三线结构正确（顶线 0.8pt / 栏目线 0.5pt / 底线 0.8pt），无垂直线
+口 示意图灰阶方案正确（白#FFF / 浅灰#EFEFEF / 中灰#DFDFDF）
+口 文件路径可访问，使用 `computer://` 协议交付
+
+**3.3 向用户说明的内容**
+
+- 图表类型、使用样式（science/nature/ieee）
+- 版式（单栏/双栏）
+- 如果是示例数据需注明
+- 交付文件路径
+
+---
+
+### 第四步：用户修改
+
+用户提出修改意见时：
+1. **仅修改用户指定的具体细节**（颜色不对只改颜色，对齐不对只改对齐）
+2. 不连带调整未涉及的参数或风格
+3. 重新生成后再次交付验证
+4. 多次迭代后如修改效果不理想，告知用户当前限制并提供替代方案
 
 ## 边界情况处理
 
