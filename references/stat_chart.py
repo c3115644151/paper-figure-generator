@@ -1,73 +1,89 @@
 """
-统计图表生成工具（matplotlib）
-AI 只需准备结构化 data dict，不碰任何 matplotlib 参数。
-底层自动处理：字体（含中文）、DPI、尺寸、配色、图例、误差线、标记形状。
+统计图表生成工具（plotnine / ggplot2 语法）
+AI 只需准备结构化 data dict，不碰任何渲染参数。
+底层使用声明式 ggplot2 语法——数据映射到视觉通道，图层叠加。
 """
 
 import os
-import sys
+import pandas as pd
+import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import numpy as np
+from plotnine import (
+    ggplot, aes, geom_line, geom_point, geom_col, geom_errorbar,
+    geom_boxplot, geom_histogram, geom_violin,
+    scale_color_manual, scale_fill_manual, scale_linetype_manual,
+    scale_shape_manual, labs, theme, element_text, element_line,
+    element_blank, element_rect, ggsave,
+)
 
-# ── 全局字体配置（防止中文方框） ──────────────────────────────
+# ── 全局字体配置 ──────────────────────────────────────────────
 _ZH_FONTS = ['WenQuanYi Micro Hei', 'Noto Sans CJK SC', 'SimHei']
-_CURRENT = plt.rcParams.get('font.sans-serif', [])
-plt.rcParams['font.sans-serif'] = _ZH_FONTS + [f for f in _CURRENT if f not in _ZH_FONTS]
+plt.rcParams['font.sans-serif'] = _ZH_FONTS + [
+    f for f in plt.rcParams.get('font.sans-serif', []) if f not in _ZH_FONTS
+]
 plt.rcParams['axes.unicode_minus'] = False
-# ─────────────────────────────────────────────────────────────
 
 # ── 论文规范常量 ──────────────────────────────────────────────
 FIGURE_DPI = 300
-SINGLE_COL_W_INCH = 3.15     # 8cm
-DOUBLE_COL_W_INCH = 6.69     # 17cm
+SINGLE_COL_W_INCH = 3.15      # 8cm
+DOUBLE_COL_W_INCH = 6.69      # 17cm
 FONT_SIZE = 9
+ASPECT_RATIO = 0.75            # 高 / 宽
 
-COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
-          "#9467bd", "#8c564b", "#e377c2", "#7f7f7f"]
-
-_MARKERS = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h']
-
-_PAPER_RCPARAMS = {
-    "font.family": "sans-serif",
-    "font.sans-serif": ["WenQuanYi Micro Hei", "Noto Sans CJK SC", "SimHei", "Arial", "DejaVu Sans"],
-    "font.size": FONT_SIZE,
-    "axes.titlesize": FONT_SIZE + 1,
-    "axes.labelsize": FONT_SIZE,
-    "axes.linewidth": 0.8,
-    "axes.edgecolor": "black",
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "xtick.labelsize": FONT_SIZE - 1,
-    "ytick.labelsize": FONT_SIZE - 1,
-    "xtick.major.width": 0.6,
-    "ytick.major.size": 3,
-    "legend.fontsize": FONT_SIZE - 1,
-    "legend.frameon": False,
-    "figure.dpi": FIGURE_DPI,
-    "savefig.dpi": FIGURE_DPI,
-    "savefig.bbox": "tight",
-    "axes.prop_cycle": plt.cycler("color", COLORS),
-    "axes.unicode_minus": False,
-}
+# 学术级灰度配色（经济学/社科论文默认）
+_GRAY_PALETTE = ["#333333", "#555555", "#777777", "#999999", "#BBBBBB"]
+_LINE_STYLES = ["solid", "dashed", "dotted", "dashdot"]
+_MARKERS = ["o", "s", "D", "^", "v", "<", ">", "p", "*", "h"]
 
 CHART_TYPES = ["line", "bar", "scatter", "box", "hist", "violin"]
 
 
-def _setup_figure(column: str):
-    w = SINGLE_COL_W_INCH if column == "single" else DOUBLE_COL_W_INCH
-    plt.rcParams.update(_PAPER_RCPARAMS)
-    fig, ax = plt.subplots(figsize=(w, w * 0.75))
-    fig.set_dpi(FIGURE_DPI)
-    return fig, ax
+def _paper_theme(w_inch: float):
+    """统一的论文级 theme 模板"""
+    h_inch = w_inch * ASPECT_RATIO
+    return theme(
+        figure_size=(w_inch, h_inch),
+        # 字体
+        text=element_text(family='WenQuanYi Micro Hei', size=FONT_SIZE),
+        axis_title=element_text(size=FONT_SIZE),
+        axis_text=element_text(size=FONT_SIZE - 1),
+        axis_text_x=element_text(size=FONT_SIZE - 1),
+        axis_text_y=element_text(size=FONT_SIZE - 1),
+        # 轴线：只有下轴和左轴
+        axis_line=element_line(color='black', size=0.6),
+        axis_line_x=element_line(color='black', size=0.6),
+        axis_line_y=element_line(color='black', size=0.6),
+        axis_ticks_major=element_line(color='black', size=0.5),
+        axis_ticks_length_major=3,
+        # 去掉上右边框和网格
+        panel_border=element_blank(),
+        panel_grid_major=element_blank(),
+        panel_grid_minor=element_blank(),
+        panel_background=element_rect(fill='white', color=None),
+        plot_background=element_rect(fill='white', color=None),
+        legend_background=element_rect(fill='white', color=None),
+        legend_key=element_rect(fill='white', color=None),
+        # 图例置于顶部横向
+        legend_position='top',
+        legend_direction='horizontal',
+        legend_title=element_blank(),
+        legend_text=element_text(size=FONT_SIZE - 1),
+        plot_title=element_text(size=FONT_SIZE + 1, ha='center'),
+        dpi=FIGURE_DPI,
+    )
 
 
-def _save_figure(fig, output_path: str):
-    fig.tight_layout(pad=0.5)
-    fig.savefig(output_path, dpi=FIGURE_DPI, bbox_inches="tight",
-                pad_inches=0.05, facecolor="white", edgecolor="none")
-    plt.close(fig)
+def _save_plot(p, output_path: str):
+    """保存并关闭 plot，返回物理尺寸"""
+    ggsave(p, output_path, dpi=FIGURE_DPI, verbose=False)
+    from PIL import Image
+    img = Image.open(output_path)
+    w_cm = img.size[0] / FIGURE_DPI * 2.54
+    h_cm = img.size[1] / FIGURE_DPI * 2.54
+    return {"path": output_path, "width_cm": round(w_cm, 1),
+            "height_cm": round(h_cm, 1), "dpi": FIGURE_DPI}
 
 
 def render_statistical_chart(
@@ -100,77 +116,99 @@ def render_statistical_chart(
     if chart_type not in CHART_TYPES:
         raise ValueError(f"不支持的图表类型: {chart_type}，可选: {CHART_TYPES}")
 
-    fig, ax = _setup_figure(column)
+    w_inch = SINGLE_COL_W_INCH if column == "single" else DOUBLE_COL_W_INCH
+    out_dir = os.path.dirname(os.path.abspath(output_path))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    # ── 各图表类型：数据转换 + ggplot ────────────────────────
 
     if chart_type == "line":
         y_keys = sorted([k for k in data if k.startswith('y') and not k.startswith('yl')])
-        x = data.get('x', np.arange(len(data.get(y_keys[0], []))))
-        for i, yk in enumerate(y_keys):
-            ax.plot(x, data[yk],
-                    color=COLORS[i % len(COLORS)],
-                    marker=_MARKERS[i % len(_MARKERS)],
-                    markersize=4, linewidth=1.5,
-                    label=yk if len(y_keys) > 1 else None)
+        x = data.get('x', list(range(len(data.get(y_keys[0], [])))))
+        rows = []
+        for yk in y_keys:
+            for xi, yi in zip(x, data[yk]):
+                rows.append({"x": xi, "value": yi, "series": yk})
+        df = pd.DataFrame(rows)
+        n_series = len(y_keys)
+        p = (ggplot(df, aes(x='x', y='value', color='series',
+                            linetype='series', shape='series'))
+             + geom_line(size=0.8)
+             + geom_point(size=1.8)
+             + scale_color_manual(values=_GRAY_PALETTE[:n_series])
+             + scale_linetype_manual(values=_LINE_STYLES[:n_series])
+             + scale_shape_manual(values=_MARKERS[:n_series])
+        )
+        if n_series <= 1:
+            p += theme(legend_position='none')
 
     elif chart_type == "bar":
         cats = data.get('categories', [])
         vals = data.get('values', [])
         errs = data.get('errors', None)
-        x_pos = np.arange(len(cats))
-        ax.bar(x_pos, vals, color=COLORS[0], width=0.6,
-               edgecolor='white', linewidth=0.5)
+        df = pd.DataFrame({"cat": pd.Categorical(cats), "val": vals})
+        p = (ggplot(df, aes(x='cat', y='val'))
+             + geom_col(fill=_GRAY_PALETTE[0], width=0.6)
+        )
         if errs:
-            ax.errorbar(x_pos, vals, yerr=errs, fmt='none',
-                        ecolor='#555555', capsize=3, capthick=0.8)
-        ax.set_xticks(x_pos)
-        ax.set_xticklabels(cats, fontsize=FONT_SIZE)
+            df['err'] = errs
+            p += geom_errorbar(aes(ymin='val - err', ymax='val + err'),
+                               width=0.2, size=0.5, color='#555555')
+        p += theme(legend_position='none')
 
     elif chart_type == "scatter":
-        ax.scatter(data.get('x', []), data.get('y', []),
-                   c=COLORS[0], s=20, alpha=0.8,
-                   edgecolors='white', linewidth=0.3)
+        df = pd.DataFrame({"x": data.get('x', []), "y": data.get('y', [])})
+        p = (ggplot(df, aes(x='x', y='y'))
+             + geom_point(color=_GRAY_PALETTE[0], size=1.8, alpha=0.8)
+             + theme(legend_position='none')
+        )
 
     elif chart_type == "box":
         dl = data.get('data', [])
         lb = data.get('labels', [])
-        bp = ax.boxplot(dl, patch_artist=True, widths=0.6)
-        for patch, c in zip(bp['boxes'], COLORS):
-            patch.set_facecolor(c)
-            patch.set_alpha(0.7)
-        if lb:
-            ax.set_xticks(np.arange(1, len(lb) + 1))
-            ax.set_xticklabels(lb, fontsize=FONT_SIZE)
+        rows = []
+        for i, group in enumerate(dl):
+            label = lb[i] if lb and i < len(lb) else str(i)
+            for v in group:
+                rows.append({"label": str(label), "value": v})
+        df = pd.DataFrame(rows)
+        df['label'] = pd.Categorical(df['label'], categories=[str(l) for l in (lb or range(len(dl)))])
+        p = (ggplot(df, aes(x='label', y='value'))
+             + geom_boxplot(fill='#EAEAEA', color='#222222', size=0.8,
+                           outlier_color='#333333', outlier_size=1.0)
+             + theme(legend_position='none')
+        )
 
     elif chart_type == "hist":
-        ax.hist(data.get('data', []), bins=data.get('bins', 20),
-                color=COLORS[0], edgecolor='white', linewidth=0.5, alpha=0.8)
+        vals = data.get('data', [])
+        bins = data.get('bins', 20)
+        df = pd.DataFrame({"value": vals})
+        p = (ggplot(df, aes(x='value'))
+             + geom_histogram(bins=bins, fill='#888888', color='#222222', size=0.5)
+             + theme(legend_position='none')
+        )
 
     elif chart_type == "violin":
         dl = data.get('data', [])
         lb = data.get('labels', [])
-        parts = ax.violinplot(dl, showmeans=True, showmedians=True)
-        for i, pc in enumerate(parts['bodies']):
-            pc.set_facecolor(COLORS[i % len(COLORS)])
-            pc.set_alpha(0.7)
-        ax.set_xticks(np.arange(1, len(lb) + 1))
-        ax.set_xticklabels(lb, fontsize=FONT_SIZE)
+        rows = []
+        for i, group in enumerate(dl):
+            label = lb[i] if lb and i < len(lb) else str(i)
+            for v in group:
+                rows.append({"label": str(label), "value": v})
+        df = pd.DataFrame(rows)
+        df['label'] = pd.Categorical(df['label'], categories=[str(l) for l in (lb or range(len(dl)))])
+        p = (ggplot(df, aes(x='label', y='value'))
+             + geom_violin(fill='#EAEAEA', color='#333333', size=0.8)
+             + theme(legend_position='none')
+        )
 
-    if xlabel:
-        ax.set_xlabel(xlabel)
-    if ylabel:
-        ax.set_ylabel(ylabel)
-    if title:
-        ax.set_title(title, fontsize=FONT_SIZE + 1, pad=6)
-    ax.tick_params(labelsize=FONT_SIZE - 1)
+    # ── 统一添加标签和 theme ────────────────────────────────
+    p += labs(x=xlabel, y=ylabel, title=title)
+    p += _paper_theme(w_inch)
 
-    _save_figure(fig, output_path)
-
-    from PIL import Image
-    img = Image.open(output_path)
-    w_cm = img.size[0] / FIGURE_DPI * 2.54
-    h_cm = img.size[1] / FIGURE_DPI * 2.54
-    return {"path": output_path, "width_cm": round(w_cm, 1),
-            "height_cm": round(h_cm, 1), "dpi": FIGURE_DPI}
+    return _save_plot(p, output_path)
 
 
 def generate_sample_data(chart_type: str) -> dict:
@@ -190,14 +228,25 @@ def generate_sample_data(chart_type: str) -> dict:
     if chart_type == "box":
         return {"data": [np.random.normal(5, 1, 50) for _ in range(4)],
                 "labels": ["模型A", "模型B", "模型C", "模型D"]}
+    if chart_type == "hist":
+        return {"data": np.random.normal(5, 1.5, 200).tolist(), "bins": 20}
+    if chart_type == "violin":
+        return {"data": [np.random.normal(5, 1, 60) for _ in range(4)],
+                "labels": ["模型A", "模型B", "模型C", "模型D"]}
     return {}
 
 
 if __name__ == "__main__":
     import json
-    print("测试模式：生成示例折线图")
-    result = render_statistical_chart(
-        generate_sample_data("line"), chart_type="line",
-        output_path="/tmp/test_stat_chart.png",
-        xlabel="时间 (s)", ylabel="幅值", title="测试：中文字体渲染")
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    for ct in CHART_TYPES:
+        print(f"测试 [{ct}]...")
+        data = generate_sample_data(ct)
+        result = render_statistical_chart(
+            data, chart_type=ct,
+            output_path=f"/tmp/test_plotnine_{ct}.png",
+            xlabel="分组" if ct in ("bar", "box", "violin") else "X 变量",
+            ylabel="Y 变量",
+            title=f"测试：{ct} 图（plotnine）"
+        )
+        print(f"  -> {json.dumps(result, ensure_ascii=False)}")
+    print("全部图表生成完成！")

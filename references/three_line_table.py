@@ -37,6 +37,14 @@ def render_three_line_table(
     """
     table_w_cm = 17.0 if column == "double" else 8.0
 
+    # 判断第二列对齐方式：短文本（≤15字符）居中，长文本居左
+    has_br = any("<br/>" in col2 for _, col2 in rows_data)
+    if has_br:
+        col2_align = "left"
+    else:
+        max_len = max(len(col2) for _, col2 in rows_data) if rows_data else 0
+        col2_align = "center" if max_len <= 15 else "left"
+
     # 构建数据行 HTML
     data_rows_html = ""
     for i, (col1, col2) in enumerate(rows_data):
@@ -100,7 +108,7 @@ tr.headline-row td:first-child {{
 }}
 tr.data-row td:last-child,
 tr.headline-row td:last-child {{
-    text-align: left; width: 81%;
+    text-align: {col2_align}; width: 81%;
 }}
 .note {{
     font-family: 'NotoSerifCJK', serif;
