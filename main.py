@@ -1,6 +1,7 @@
 """
 论文图表生成 - 辅助函数库
-统计图表（SciencePlots）、示意图（Graphviz DOT → PNG）、三线表（booktabs LaTeX）
+统计图表（SciencePlots）、示意图（Graphviz DOT → PNG）、三线表（Python函数调用自动渲染）
+所有函数均已封装为"AI 只传数据/参数，不碰底层实现"的抽象接口。
 """
 
 import os
@@ -71,6 +72,112 @@ def save_paper_figure(fig, output_path: str, tight: bool = True):
         edgecolor="none",
     )
     plt.close(fig)
+
+
+def render_statistical_chart(data: dict, chart_type: str = "line",
+                              style: str = "science", column: str = "single",
+                              output_path: str = "chart.png",
+                              xlabel: str = "", ylabel: str = "", title: str = ""):
+    """
+    从结构化数据生成统计图表，AI 只需传入数据和图表类型，不碰 matplotlib 参数。
+    底层自动处理：样式选择、DPI、尺寸、字体、颜色方案、图例、误差线、标记形状等。
+
+    参数:
+        data: 结构化数据字典
+            line: {"x": [], "y1": [], "y2": [], ...} — 支持多组折线
+            bar: {"categories": [], "values": [], "errors": []}
+            scatter: {"x": [], "y": []}
+            box: {"data": [[], []...], "labels": []}
+            hist: {"data": [], "bins": N}
+            violin: {"data": [[], []...], "labels": []}
+        chart_type: "line"/"bar"/"scatter"/"box"/"hist"/"violin"
+        style: SciencePlots 样式名，默认 "science"
+        column: "single" 或 "double"
+        output_path: 输出 PNG 路径
+        xlabel, ylabel: 坐标轴标签
+        title: 图标题（可选）
+
+    返回:
+        dict: {"path": str, "width_cm": float, "height_cm": float, "dpi": int}
+    """
+    fig, ax = setup_science_style(style, column)
+
+    # 颜色方案（色盲友好）
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h']
+
+    if chart_type == "line":
+        # 找出所有 y 系列
+        y_keys = [k for k in data.keys() if k.startswith('y')]
+        x = data.get('x', np.arange(len(data.get(y_keys[0], []))))
+        for i, yk in enumerate(y_keys):
+            y = data[yk]
+            ax.plot(x, y, color=colors[i % len(colors)],
+                    marker=markers[i % len(markers)],
+                    markersize=4, linewidth=1.5,
+                    label=yk if len(y_keys) > 1 else None)
+
+    elif chart_type == "bar":
+        categories = data.get('categories', [])
+        values = data.get('values', [])
+        errors = data.get('errors', None)
+        x_pos = np.arange(len(categories))
+        bars = ax.bar(x_pos, values, color=colors[0], width=0.6,
+                      edgecolor='white', linewidth=0.5)
+        if errors:
+            ax.errorbar(x_pos, values, yerr=errors, fmt='none',
+                        ecolor='#555555', capsize=3, capthick=0.8)
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels(categories, fontsize=FONT_SIZE)
+
+    elif chart_type == "scatter":
+        x = data.get('x', [])
+        y = data.get('y', [])
+        ax.scatter(x, y, c=colors[0], s=20, alpha=0.8,
+                   edgecolors='white', linewidth=0.3)
+
+    elif chart_type == "box":
+        data_list = data.get('data', [])
+        labels = data.get('labels', [])
+        bp = ax.boxplot(data_list, labels=labels, patch_artist=True,
+                        widths=0.6)
+        for patch, color in zip(bp['boxes'], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.7)
+
+    elif chart_type == "hist":
+        data_arr = data.get('data', [])
+        bins = data.get('bins', 20)
+        ax.hist(data_arr, bins=bins, color=colors[0], edgecolor='white',
+                linewidth=0.5, alpha=0.8)
+
+    elif chart_type == "violin":
+        data_list = data.get('data', [])
+        labels = data.get('labels', [])
+        parts = ax.violinplot(data_list, showmeans=True, showmedians=True)
+        for i, pc in enumerate(parts['bodies']):
+            pc.set_facecolor(colors[i % len(colors)])
+            pc.set_alpha(0.7)
+        ax.set_xticks(np.arange(1, len(labels) + 1))
+        ax.set_xticklabels(labels, fontsize=FONT_SIZE)
+
+    if xlabel:
+        ax.set_xlabel(xlabel, fontsize=FONT_SIZE)
+    if ylabel:
+        ax.set_ylabel(ylabel, fontsize=FONT_SIZE)
+    if title:
+        ax.set_title(title, fontsize=FONT_SIZE + 1, pad=6)
+
+    ax.tick_params(labelsize=FONT_SIZE - 1)
+
+    save_paper_figure(fig, output_path)
+
+    from PIL import Image
+    img = Image.open(output_path)
+    w_cm = img.size[0] / FIGURE_DPI * 2.54
+    h_cm = img.size[1] / FIGURE_DPI * 2.54
+    return {"path": output_path, "width_cm": round(w_cm, 1),
+            "height_cm": round(h_cm, 1), "dpi": FIGURE_DPI}
 
 
 # ─── 模块二：示意图 (draw.io XML) ───────────────────────────────
