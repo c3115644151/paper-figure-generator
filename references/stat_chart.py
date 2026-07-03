@@ -133,10 +133,13 @@ def render_statistical_chart(
     elif chart_type == "box":
         dl = data.get('data', [])
         lb = data.get('labels', [])
-        bp = ax.boxplot(dl, labels=lb, patch_artist=True, widths=0.6)
+        bp = ax.boxplot(dl, patch_artist=True, widths=0.6)
         for patch, c in zip(bp['boxes'], COLORS):
             patch.set_facecolor(c)
             patch.set_alpha(0.7)
+        if lb:
+            ax.set_xticks(np.arange(1, len(lb) + 1))
+            ax.set_xticklabels(lb, fontsize=FONT_SIZE)
 
     elif chart_type == "hist":
         ax.hist(data.get('data', []), bins=data.get('bins', 20),
