@@ -1,4 +1,5 @@
-scienceplots>=2.2.0
+# scienceplots 非必需——缺失时会自动降级到内置论文级样式参数
+# scienceplots>=2.2.0
 matplotlib>=3.7.0
 pandas>=1.5.0
 numpy>=1.24.0

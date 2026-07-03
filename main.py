@@ -18,7 +18,7 @@ FIGURE_DPI = 300
 SINGLE_COL_WIDTH_INCH = 3.15   # 8cm
 DOUBLE_COL_WIDTH_INCH = 6.69  # 17cm
 FONT_SIZE = 9
-FONT_FAMILY = "Arial"
+# FONT_FAMILY: 通过 rcParams["font.sans-serif"] 动态检测，无需硬编码
 
 AVAILABLE_STYLES = [
     "science", "ieee", "nature", "sciexcel",
@@ -36,25 +36,78 @@ CHART_TYPES = {
 }
 
 
-def setup_science_style(style: str = "science", column: str = "single"):
-    """应用SciencePlots样式并设置论文规范尺寸"""
+def _auto_install(package: str):
+    """自动 pip 安装缺失包"""
+    import subprocess, sys
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package, "-q"])
+
+
+def _apply_paper_style(ax, style: str):
+    """应用论文级样式——优先 SciencePlots，降级到内置参数"""
+    # 尝试 SciencePlots
+    scienceplots_ok = False
     try:
         import scienceplots
+        scienceplots_ok = True
     except ImportError:
-        raise ImportError("scienceplots 未安装，请先 pip install scienceplots")
+        try:
+            _auto_install("scienceplots")
+            import scienceplots
+            scienceplots_ok = True
+        except Exception:
+            pass
 
-    # 应用样式
-    if style not in AVAILABLE_STYLES:
-        style = "science"
-    style_list = [s for s in [style, "no-latex", "ieee"] if s in plt.style.available or s in AVAILABLE_STYLES]
-    try:
-        plt.style.use(style_list)
-    except Exception:
-        plt.style.use(["science", "no-latex"])
+    if scienceplots_ok:
+        candidates = [s for s in [style, "no-latex", "ieee"]
+                      if s in plt.style.available]
+        if not candidates:
+            candidates = ["science", "no-latex"]
+            candidates = [s for s in candidates if s in plt.style.available]
+        if candidates:
+            try:
+                plt.style.use(candidates)
+                return  # 应用成功，返回
+            except Exception:
+                pass
 
+    # ─── 降级方案：硬编码论文级参数 ───
+    # 适用于没有 scienceplots / LaTeX 的环境
+    color_cycle = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
+                   "#9467bd", "#8c564b", "#e377c2", "#7f7f7f"]
+    plt.rcParams.update({
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+        "font.size": FONT_SIZE,
+        "axes.titlesize": FONT_SIZE + 1,
+        "axes.labelsize": FONT_SIZE,
+        "axes.linewidth": 0.8,
+        "axes.edgecolor": "black",
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "xtick.labelsize": FONT_SIZE - 1,
+        "ytick.labelsize": FONT_SIZE - 1,
+        "xtick.major.width": 0.6,
+        "ytick.major.width": 0.6,
+        "xtick.major.size": 3,
+        "ytick.major.size": 3,
+        "legend.fontsize": FONT_SIZE - 1,
+        "legend.frameon": False,
+        "figure.dpi": FIGURE_DPI,
+        "savefig.dpi": FIGURE_DPI,
+        "savefig.bbox": "tight",
+        "axes.prop_cycle": plt.cycler("color", color_cycle),
+    })
+
+
+def setup_science_style(style: str = "science", column: str = "single"):
+    """应用论文级样式并设置尺寸——自动降级，scienceplots 缺失时走内置参数"""
     # 设置尺寸
     width = SINGLE_COL_WIDTH_INCH if column == "single" else DOUBLE_COL_WIDTH_INCH
     fig, ax = plt.subplots(figsize=(width, width * 0.75))
+
+    # 应用样式（含自动降级）
+    _apply_paper_style(ax, style)
+
     fig.set_dpi(FIGURE_DPI)
     return fig, ax
 
@@ -107,8 +160,9 @@ def render_statistical_chart(data: dict, chart_type: str = "line",
     markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h']
 
     if chart_type == "line":
-        # 找出所有 y 系列
-        y_keys = [k for k in data.keys() if k.startswith('y')]
+        # 找出所有 y 系列（排除 xlabel/ylabel 等字符串字段）
+        y_keys = sorted([k for k in data.keys()
+                         if k.startswith('y') and not k.startswith('yl')])
         x = data.get('x', np.arange(len(data.get(y_keys[0], []))))
         for i, yk in enumerate(y_keys):
             y = data[yk]
