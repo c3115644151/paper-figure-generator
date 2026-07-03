@@ -3,251 +3,233 @@ name: paper-figure-generator
 description: 论文图表生成工具，覆盖统计图表（Python函数调用，AI只传结构化数据）、示意图（Graphviz函数调用渲染，AI只写DOT）、三线表（Python函数调用自动渲染为可出版级PNG）三类论文图表产出。当用户需要生成论文图表、统计图、示意图、三线表、学术图表、科研绘图、paper figure、scientific figure时使用。支持按论文期刊规范自动设置分辨率(300dpi)、字体(Arial 8-12pt)、尺寸(单栏8cm/双栏17cm)、色彩(RGB/色盲友好)等参数。
 ---
 
-# 论文图表生成
+# 论文图表生成技能
 
 ## 概述
 
-本技能用于生成符合学术论文出版规范的图表，覆盖三类产出：
-- **统计图表**：折线图、柱状图、散点图、箱线图等（基于 matplotlib + SciencePlots）
-- **示意图**：流程图、架构图、框架图、时间线等（基于 Graphviz DOT 语言渲染为 PNG，不依赖 GPU/浏览器/X11）
-- **三线表**：Python 函数调用自动渲染为可出版级 PNG，AI 只传数据不写像素坐标
+本技能封装三套独立工具脚本，覆盖论文图表三类核心产出，所有论文规范在脚本层内化固定，AI **无需操心任何渲染参数**。
 
-## 通用论文规范（所有图表必须遵循）
+| 工具脚本 | 产出 | 技术方案 |
+|---------|------|---------|
+| `references/stat_chart.py` | 统计图表 | matplotlib，灰度学术配色 |
+| `references/schematic.py` | 示意图 | Graphviz DOT → PNG |
+| `references/three_line_table.py` | 三线表 | HTML+WeasyPrint → PDF → PNG |
 
-1. **分辨率**：≥300 dpi，线条图 600-1200 dpi
-2. **格式**：矢量格式优先（PDF/SVG）；位图用 TIFF（LZW压缩），禁用 JPEG。三线表用 PNG 输出（16位灰度，300dpi）
-3. **字体**：论文正文衬线字体优先（中文论文：Noto Serif CJK SC；英文论文：Arial/Computer Modern），所有字体必须嵌入
-4. **颜色**：RGB 模式，色盲友好（避免红绿对比，用蓝橙替代）。经济学/社科论文默认灰度配色
-5. **尺寸**：单栏 8-8.5cm（3.15-3.35in），双栏 17-17.8cm（6.69-7.0in）
-6. **轴标签**：包含变量名和单位，如"时间 (s)"
-7. **图例**：放在图内空白区域，不遮挡数据
-8. **标记点**：优先用几何形状（○□△◇），不用颜色作为唯一区分
-
-## 工作流程
-
-### 第一步：理解需求
-
-解析用户输入，提取：
-1. **图表类型**：统计图 / 示意图 / 三线表 / 混合
-2. **数据来源**：用户提供的数据（文本/表格/文件）或需要示例数据
-3. **输出格式**：用户指定的格式，或在文件生成时使用默认格式
-4. **期刊要求**：如有明确期刊（如 Nature / IEEE / Science），按对应模板调整
-
-### 第二步：生成统计图表（函数调用）
-
-适用场景：折线图、柱状图、散点图、箱线图、小提琴图、直方图
-
-**核心原则**：AI 只传结构化的数据和图表类型，不碰任何 matplotlib 参数。底层自动处理样式、DPI、尺寸、字体、颜色方案、图例、误差线、标记形状等。
-
-执行步骤：
-1. 从用户数据中提取结构化信息，按图表类型组织成 data dict
-2. 从 `main.py` 导入 `render_statistical_chart()`
-3. 调用函数，传入 data dict 和 chart_type
-4. 输出生成的图片路径和尺寸信息
+**导入方式**（AI 使用层固定模式）：
 
 ```python
-from main import render_statistical_chart
-
-# 折线图示例
-data = {
-    "x": [0, 1, 2, 3, 4, 5],
-    "y1": [0.1, 0.4, 0.9, 1.6, 2.5, 3.6],
-    "y2": [0.2, 0.6, 1.2, 2.0, 3.0, 4.2]
-}
-result = render_statistical_chart(data, chart_type="line", style="science",
-                                   column="double", output_path="chart.png",
-                                   xlabel="时间 (s)", ylabel="幅值")
-
-# 柱状图示例
-data = {
-    "categories": ["对照组", "实验组A", "实验组B", "实验组C"],
-    "values": [12.3, 18.7, 25.1, 15.4],
-    "errors": [1.2, 1.5, 2.0, 1.3]
-}
-result = render_statistical_chart(data, chart_type="bar", ...)
+import sys
+sys.path.insert(0, 'skills/paper-figure-generator/references')
+from stat_chart import render_statistical_chart
+from schematic import render_dot_to_png
+from three_line_table import render_three_line_table
 ```
 
-**data dict 格式说明**（按 chart_type）：
+---
 
-| chart_type | 必需字段 | 可选字段 |
-|-----------|---------|---------|
-| line | x, y1[, y2, y3...] | — |
-| bar | categories, values | errors |
-| scatter | x, y | — |
-| box | data, labels | — |
-| hist | data | bins |
-| violin | data, labels | — |
+## 1. 统计图表 — `render_statistical_chart()`
 
-样式选择指南：
-- `science`：通用学术风格（默认）
-- `ieee`：IEEE 期刊（双栏紧凑）
-- `nature`：Nature 风格（简洁，无网格）
-- `high-vis`：高对比度，适合展示/PPT
-
-### 第三步：生成示意图（函数调用）
-
-适用场景：框架图、流程图、架构图、时间线、模型结构图、层级结构图
-
-**核心原则**：AI 只需编写 DOT 描述语言（结构化节点关系描述），调用 `render_dot_to_png()` 即可完成渲染。Graphviz 是矢量渲染引擎，不依赖 GPU/浏览器/X11。底层自动处理：graphviz 安装检查、尺寸转换、DPI、渲染、物理尺寸校验。
-
-执行步骤：
-1. 编写 DOT 描述文本（描述节点、边、分组、方向）
-2. 导入 `render_dot_to_png()` 并调用
-3. 输出生成的图片路径和尺寸信息
+### 1.1 API 签名（AI 唯一入口）
 
 ```python
-from main import render_dot_to_png
+render_statistical_chart(
+    data: dict,          # 结构化数据（格式见下）
+    chart_type: str,     # "line"/"bar"/"scatter"/"box"/"hist"/"violin"
+    column: str,         # "single"(8cm) / "double"(17cm)
+    output_path: str,    # 输出 PNG 路径
+    xlabel: str = "",    # x 轴标签（含单位，如"时间 (s)"）
+    ylabel: str = "",    # y 轴标签
+    title: str = "",     # 标题（论文图题通常在图外 caption，慎用）
+) -> dict               # {path, width_cm, height_cm, dpi=300}
+```
 
-dot_text = '''
-digraph 模型架构 {
+**底层自动处理（AI 不操心）**：300dpi，灰度学术配色（多序列用灰度阶梯+线型+标记区分），去上右轴，刻度朝外，字号 9pt/8pt，WenQuanYi Micro Hei 中文回退链。
+
+### 1.2 六种图表的数据格式
+
+| chart_type | data 字段 | 说明 | 典型场景 |
+|-----------|----------|------|---------|
+| `line` | `x: list`, `y1: list`[, `y2`, `y3`...] | 多序列用 y1/y2/y3 命名，自动线型+标记区分 | 时间序列、趋势对比 |
+| `bar` | `categories: list`, `values: list`, `errors: list`(可选) | 仅单组柱状图，不支持分组对比条形图 | 实验组对比、分类汇总 |
+| `scatter` | `x: list`, `y: list` | 默认同色（#333） | 相关性分析 |
+| `box` | `data: list[list]`, `labels: list` | 浅灰填充 #EAEAEA + 深灰边框 #222 | 多组分布对比 |
+| `hist` | `data: list`, `bins: int`(可选) | 默认 20 bins，灰填充+深色边线 | 单变量分布 |
+| `violin` | `data: list[list]`, `labels: list` | 浅灰+深灰，显示均值+中位数 | 分布形态+集中趋势 |
+
+### 1.3 典型调用示例
+
+**折线图（双序列）**
+```python
+data = {"x": [0, 1, 2, 3, 4, 5], "y1": [0.1, 0.4, 0.9, 1.6, 2.5, 3.6],
+        "y2": [0.2, 0.6, 1.2, 2.0, 3.0, 4.2]}
+result = render_statistical_chart(data, "line", "single", "chart.png",
+                                   xlabel="时间 (s)", ylabel="幅值")
+```
+
+**柱状图（含误差线）**
+```python
+data = {"categories": ["对照组", "实验A", "实验B"],
+        "values": [12.3, 18.7, 25.1],
+        "errors": [1.2, 1.5, 2.0]}
+result = render_statistical_chart(data, "bar", "double", "bar.png",
+                                   xlabel="分组", ylabel="准确率 (%)")
+```
+
+### 1.4 Agent 决策要点
+
+| 决策项 | 需要 agent 做什么 | 提示 |
+|-------|-----------------|------|
+| **选类型** | 根据数据语义判断：趋势→line，对比→bar，相关→scatter，分布→box/violin/hist | 同上表 |
+| **组织 data dict** | 按 1.2 表的字段组装，确保长度一致 | 长度不一致导致隐性错误，建议前置校验 len() |
+| **单栏 vs 双栏** | 看目标期刊排版 | 单栏 8cm，双栏 17cm |
+| **轴标签语义** | xlabel/ylabel 必须含变量名+单位（如"温度 (℃)"）| 不加单位是不合格论文图 |
+| **标题 title** | 仅当用户明确要求时才加。**论文图题标准位置在图外（caption）** | 多数场景不传 title |
+| **数据量过大** | line 超 1000 点、scatter 超 10000 点应抽样 | 脚本不做自动降采样 |
+| **缺失数据** | 用 None 占位后，agent 自行决定插值/虚线连接 | 脚本不自动处理缺失 |
+
+### 1.5 ⚠️ 边界与已知限制
+
+- **不支持分组柱状图**（如"区域×时期"的 2×2 对比）。如需要，用多子图或示意表的方案替代
+- **仅输出 PNG**（300dpi），不输出 PDF/SVG
+- **配色固定为灰度**（经济学/社科默认）。如有彩色展示需求，需等未来扩展
+
+---
+
+## 2. 示意图 — `render_dot_to_png()`
+
+### 2.1 API 签名
+
+```python
+render_dot_to_png(
+    dot_text: str,       # DOT 语言描述文本
+    output_path: str,    # 输出 PNG 路径
+    column: str,         # "single"(8cm) / "double"(17cm)
+) -> dict               # {path, width_cm, height_cm, dpi=300}
+```
+
+**底层自动处理**：DOT 渲染为 300dpi PNG，输出物理尺寸按栏宽缩放，自动裁剪白边。
+
+### 2.2 Agent 决策要点
+
+| 决策项 | 需要 agent 做什么 | 提示 |
+|-------|-----------------|------|
+| **方向** | 选 rankdir（TB 自上而下 / LR 自左向右） | 流程描述长文本→TB，横向对比→LR |
+| **节点层级** | 按信息层级分配灰度（浅→中→深） | 见下方灰度配色表 |
+| **换行** | 多行文本用 HTML-like label `<br/>` | `label=<行1<br/>行2>`，引号包裹 |
+| **分组** | 逻辑分组用 `subgraph cluster_xxx {}` | 核心分组 style=solid，次要 style=dashed |
+| **中文字体** | DOT 中必须指定 `fontname="Noto Sans CJK SC"` | 图形节点、边标签都要加 |
+| **尺寸控制** | 列宽固定后，高宽比由 DOT 布局决定 | 单栏→窄长型自动处理 |
+
+### 2.3 灰度配色规范（已内化至示例，AI 直接套用）
+
+```
+最浅  #F8F8F8  #AAAAAA  背景/输入
+浅    #F0F0F0  #888888  初级节点
+中浅  #E8E8E8  #777777  二级节点
+中    #E0E0E0  #666666  核心节点
+中深  #D8D8D8  #555555  重要节点
+深    #CCCCCC  #333333  强调节点/输出
+```
+
+**写 DOT 时的 template**（AI 直接填充节点逻辑即可）：
+
+```dot
+digraph 标题 {
     rankdir=TB; splines=ortho; compound=true;
     bgcolor="white"; fontname="Noto Sans CJK SC";
     node [fontname="Noto Sans CJK SC", fontsize=9, shape=box, style="filled,rounded"];
     edge [color="#666666", penwidth=1.0];
 
-    input [label="输入层", fillcolor="#F0F0F0"];
-    feat [label="特征提取", fillcolor="#E0E0E0"];
-    cls [label="分类器", fillcolor="#E0E0E0"];
-    output [label="输出", fillcolor="#CCCCCC"];
+    n1 [label="节点1", fillcolor="#F0F0F0"];
+    n2 [label="节点2", fillcolor="#E0E0E0"];
+    n3 [label="节点3", fillcolor="#CCCCCC"];
 
-    input -> feat -> cls -> output;
+    n1 -> n2 -> n3;
 }
-'''
-
-result = render_dot_to_png(dot_text, "diagram.png", column="double")
-print(f'{result["width_cm"]:.1f}x{result["height_cm"]:.1f}cm @{result["dpi"]}dpi')
 ```
 
-**DOT 编写参考：**
+### 2.4 ⚠️ 边界与已知限制
 
-| 配置 | 选项 | 说明 |
-|------|------|------|
-| `rankdir` | TB / LR | 自上而下 / 自左向右 |
-| `splines` | ortho / curved / polyline | 连线风格 |
-| `compound` | true | 允许子图间连线 |
+- 依赖系统 `dot` 命令（Graphviz），环境缺失时自动检测并报错
+- 超过 A4 页面高度（27cm）时自动报错，需改用 `rankdir=LR` 横向布局
+- 不支持数学公式渲染
 
-**灰度配色规范（经济学/社科默认）：**
+---
 
-| 层级 | 填充色 | 边框色 | 用途 |
-|------|--------|--------|------|
-| 最浅 | #F8F8F8 | #AAAAAA | 背景/外部输入 |
-| 浅 | #F0F0F0 | #888888 | 初级节点 |
-| 中浅 | #E8E8E8 | #777777 | 二级节点 |
-| 中 | #E0E0E0 | #666666 | 核心节点 |
-| 中深 | #D8D8D8 | #555555 | 重要节点 |
-| 深 | #CCCCCC | #333333 | 强调节点/终点 |
+## 3. 三线表 — `render_three_line_table()`
 
-子图分组用 `subgraph cluster_xxx {}`，核心分组用 style=solid，次要分组用 style=dashed。
-节点内换行使用 HTML-like label：`label=<行1<br/>行2>`
-
-### 第四步：生成三线表（Python 函数调用）
-
-**核心原则**：AI 只传表格数据和格式参数（表头、数据行、注释、宽度），不碰任何底层实现——不做像素坐标、不写 HTML 标签、不调 CSS。渲染引擎自动完成排版。
-
-**适用场景**：实验结果表、数据汇总表、对比分析表、统计描述表、政策任务分工表等
-
-#### 4.1 调用方式
-
-把 `references/gen_three_line_table_v2.py` 复制到工作目录，修改其中的数据和参数后直接运行：
+### 3.1 API 签名
 
 ```python
-# 1. 复制脚本到工作目录
-import shutil
-shutil.copy('skills/paper-figure-generator/references/gen_three_line_table_v2.py', './gen_three_line.py')
-
-# 2. 编辑数据（只改数据，不改渲染逻辑）
-rows_data = [
-    ('第一类\n（N项）', '任务1<br/>任务2<br/>任务3'),
-    ('第二类\n（N项）', '任务A<br/>任务B'),
-]
-
-note_text = '注：说明文字'
-
-# 3. 运行
-exec(open('./gen_three_line.py', encoding='utf-8').read())
+render_three_line_table(
+    rows_data: list,     # [("第一列", "第二列"), ...]
+    note_text: str = "", # 表注文本（可选，加在表格下方）
+    headers: tuple = ("类别", "重点任务"),  # (第一列表头, 第二列表头)
+    column: str = "double",  # "single"(8cm) / "double"(17cm)
+    output_path: str = "table_three_line.png",
+) -> dict               # {path, width_cm, height_cm, dpi=300,
+                        #  lines_expected=3, lines_detected=int}
 ```
 
-**实际使用中**，直接把 `gen_three_line_table_v2.py` 复制到工作目录，修改 `rows_data`、`note_text` 和 `TABLE_W_CM` 三个变量即可。不需要修改其他任何代码。
+**底层自动处理**：三线规则（顶线 1.5pt / 表头线 1.0pt / 底线 1.5pt，无竖线），Noto Serif CJK SC 中文衬线字体，正文 9pt 注释 7.5pt，第二列对齐自动判断（短文本居中、长文本/多行居左），300dpi PNG 输出，自动裁剪白边。
 
-**传入参数说明：**
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `rows_data` | 表格数据，每项为(第一列文本, 第二列文本)的元组。第二列多行用 `<br/>` 分隔 | 必填 |
-| `note_text` | 表注文本 | 必填 |
-| `TABLE_W_CM` | 表格宽度（cm），单栏=8.0，双栏=17.0 | 17.0 |
-| `FONT_PATH` | 中文字体路径 | NotoSerifCJK-Regular.ttc |
-| `output_path` | 输出 PNG 路径 | 自动生成 |
+### 3.2 Agent 决策要点
 
-#### 4.2 输出
+| 决策项 | 需要 agent 做什么 | 提示 |
+|-------|-----------------|------|
+| **组织 rows_data** | 每行为(第一列, 第二列)元组。第二列多行用 `<br/>` 分隔 | 逗号不能用普通换行 |
+| **表头语义** | headers 传(第一列名, 第二列名) | 默认"类别"和"重点任务"需要替换 |
+| **表注** | 以"注："开头，说明数据来源、样本量、显著性等 | 例如"注：N=100，***p<0.01" |
+| **单栏 vs 双栏** | 同统计图 | 单栏 8cm，双栏 17cm |
+| **对齐方式** | 不需要操心。底层自动判断：含 `<br/>`→左对齐，短文本→居中 | 如果第二列混排长/短，走左对齐 |
 
-脚本自动完成：
-1. 构建表格 HTML（内部自动完成，AI 不碰）
-2. WeasyPrint 渲染为 PDF
-3. pdftoppm 转为 300dpi PNG
-4. PIL 自动裁剪白边
-5. 输出最终图片路径 + 尺寸校验结果
+### 3.3 典型调用示例
 
-#### 4.3 渲染规范（AI 不需要管，引擎自动处理）
+```python
+rows = [
+    ("方法A", "85.2 ± 1.3"),
+    ("方法B", "91.5 ± 0.8"),
+    ("方法C", "88.7 ± 1.1"),
+]
+result = render_three_line_table(rows, note_text="注：N=30，均值±标准差。",
+                                  headers=("模型", "准确率 (%)"),
+                                  column="single", output_path="table.png")
+```
 
-渲染引擎内部固定使用以下规范（记录在此供排查问题用，运行时不需手动配置）：
+### 3.4 ⚠️ 边界与已知限制
 
-**三线规则：** 顶线 1.5pt / 表头线 1.0pt / 底线 1.5pt，仅三条横线，无竖线
-**字体：** 中文 Noto Serif CJK SC（衬线），表头加粗；英文 Arial
-**字号：** 正文 9pt，注释 7.5pt
-**列对齐：** 第一列居中（19%宽度），第二列左对齐（81%宽度）
-**行高：** 1.4 倍
-**间距：** 顶线到表头文字 ≈ 底线到最后文字（视觉对称）
-**注释：** 紧随表格下方，7.5pt，两端对齐，CSS 自动换行
+- 仅支持**两列**三线表，不支持多列复杂表
+- 依赖 WeasyPrint + pdftoppm，环境缺失时自动报错
+- 表格仅输出 PNG，不支持 Word/LaTeX 格式
 
-#### 4.4 失败处理
-- WeasyPrint / pdftoppm 未安装：自动安装
-- 字体加载失败：回退到 Noto Sans CJK SC
-- 生成后校验宽度：误差 < 0.2cm
+---
 
-### 第五步：输出与交付
+## 4. 通用交付规范
 
-1. **统计图表**：输出 `.png` 图像文件路径，同时说明尺寸、分辨率、样式
-2. **示意图**：输出 `.png` 图片文件路径，说明尺寸、分辨率、配色方案
-3. **三线表**：输出裁剪后的 `.png` 图片文件路径，标注尺寸（宽×高 cm @300dpi）、字体、线宽参数，供用户核验
-4. 每次生成后，简要标注关键格式参数以供用户核验
-5. 三线表产出后自动上传到项目文件系统
+所有图表产出后，agent 应做以下检查并告知用户：
 
-## 示例场景
+1. **路径确认**：产物存在、路径可访问
+2. **尺寸标注**：宽×高 cm @300dpi
+3. **引用论文规范**：说明"按通用学术规范（灰度配色/三线规则/300dpi）"
+4. **上传项目**：产物上传到项目文件系统，用 `computer://` 协议发送
 
-### 示例 1：生成论文折线图
-> 用户："用示例数据生成一张折线图，对比两组实验结果"
-> 输出：science样式折线图，x轴"时间 (s)"，y轴"幅值"，300dpi，单栏宽度
+### 格式总结
 
-### 示例 2：生成示意图
-> 用户："画一个简单的模型架构图：输入→特征提取→分类器→输出"
-> 输出：标准 PNG 图片，16.9cm宽，300dpi，灰度配色，4节点+3箭头
+| 产出 | 格式 | 尺寸 | DPI | 配色 |
+|------|------|------|-----|------|
+| 统计图 | PNG | 8/17cm 宽 | 300 | 灰度（#333→#BBB阶梯） |
+| 示意图 | PNG | 8/17cm 宽 | 300 | 灰度（#F8F8F8→#CCCCCC阶梯） |
+| 三线表 | PNG | 8/17cm 宽 | 300 | 黑白（三横线，无竖线） |
 
-### 示例 3：生成三线表
-> 用户："把这几组实验数据做成三线表：方法A 85.2±1.3, 方法B 91.5±0.8, 方法C 88.7±1.1"
-> 输出：gen_three_line_table_v2.py 调用 → PNG，17.0cm 双栏宽，300dpi，标准三线表
+---
 
-## 边界情况处理
+## 5. 边界与异常处理速查
 
-- **数据量过大**（>10000点）：随机采样或聚合后再绘图，标注采样方法
-- **缺失数据**：在图中标注缺失区域，用虚线连接
-- **负值数据**：柱状图用不同颜色区分正负
-- **用户无数据**：使用 `generate_sample_data()` 生成示例数据，标注"示例数据"
-- **SciencePlots 未安装**：函数内部自动尝试安装（scienceplots），失败时自动降级为内置论文级 rcParams，不影响出图
-- **graphviz (dot) 未安装**：render_dot_to_png 首次调用时自动检测并提示安装命令，不会自动安装系统包
-- **WeasyPrint / pdftoppm 未安装**：需环境预装，脚本执行时自动检测；pdftoppm 失败时有保护性退出
-- **期刊要求不明确**：默认使用通用学术规范（science样式，单栏）
-- **三线表字体加载失败**：自动回退到 Noto Sans CJK SC
-- **DOT 语法错误**：检查括号和引号是否闭合；Graphviz 会报告具体错误行号
-- **经济学/社科论文**：默认灰度配色方案；用户明确要求彩色时使用低饱和度配色
-- **渲染后尺寸过大**：超过 A4 页面高度（27cm）时改用横向布局（rankdir=LR）
-- **三线表产出尺寸校验**：gen_three_line_table_v2.py 自动完成，误差 < 0.2cm
-
-## 注意事项
-
-- 所有图表文件生成在 Agent 工作目录下，文件名带时间戳和图表类型标识
-- 不要猜测期刊格式要求——如果用户未指定期刊，使用通用规范
-- 三线表**禁止使用 matplotlib text() 手搓像素坐标**（用户明确反对此方案），统一使用 gen_three_line_table_v2.py 的函数调用方案
-- 三线表严格遵守三条横线规则（顶线 1.5pt / 表头线 1.0pt / 底线 1.5pt），不加竖线
-- 示意图使用论文友好的灰度配色（经济学/社科默认）或低饱和度彩色配色
-- 示意图渲染依赖本地 `dot` 命令（Graphviz），无需 GPU/浏览器/X11
-- 涉及中文的 DOT 描述必须指定 fontname="Noto Sans CJK SC"，英文内容使用 Arial
+| 场景 | 处理方式 |
+|------|---------|
+| 用户无数据 | 用 `stat_chart.generate_sample_data(chart_type)` 生成示例并标注"示例数据" |
+| 数据量过大 | agent 自行采样后再传 |
+| 缺失数据 | agent 自行决定插值/虚线/标注缺失 |
+| 期刊要求不明确 | 默认通用学术规范，**不要猜测期刊** |
+| 用户要求彩色 | 当前不支持，告知"默认灰度，暂无可切换彩色选项" |
+| 工具导入失败 | 检查导入路径 `sys.path.insert(0, 'skills/paper-figure-generator/references')` |
