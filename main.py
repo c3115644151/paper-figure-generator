@@ -5,6 +5,8 @@
 """
 
 import os
+import subprocess
+import tempfile
 import matplotlib
 matplotlib.use("Agg")  # 非交互后端
 import matplotlib.pyplot as plt
@@ -36,10 +38,26 @@ CHART_TYPES = {
 }
 
 
+# 允许自动安装的 Python 包白名单（仅限轻量、稳定、无系统依赖的包）
+_AUTO_INSTALL_ALLOWED = {"scienceplots"}
+
+
 def _auto_install(package: str):
-    """自动 pip 安装缺失包"""
-    import subprocess, sys
-    subprocess.check_call([sys.executable, "-m", "pip", "install", package, "-q"])
+    """自动 pip 安装缺失包（仅限白名单内的包）
+    不在白名单内的包不会自动安装，避免安全风险。
+    失败时静默处理，不阻塞主流程。
+    """
+    if package not in _AUTO_INSTALL_ALLOWED:
+        print(f"[安全] 跳过自动安装: {package}（不在白名单中）")
+        return
+    try:
+        import sys
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", package, "-q"],
+            timeout=60,
+        )
+    except Exception:
+        print(f"[安全] 自动安装 {package} 失败，将使用降级方案")
 
 
 def _apply_paper_style(ax, style: str):
@@ -371,23 +389,20 @@ def generate_sample_data(chart_type: str):
 
 # ─── 模块二补充：Graphviz DOT → PNG 渲染 ──────────────────────
 
-import subprocess
-import tempfile
-
 DOT_DPI = 300
 DOUBLE_COL_CM = 16.9  # 双栏宽度 (cm)
 SINGLE_COL_CM = 8.0   # 单栏宽度 (cm)
 
 
-def check_graphviz():
-    """检查 graphviz 是否已安装，未安装则自动安装"""
-    result = subprocess.run(["which", "dot"], capture_output=True, text=True)
-    if result.returncode != 0:
-        print("Graphviz 未安装，正在安装...")
-        subprocess.run(["apt-get", "install", "-y", "graphviz"], check=True)
-        print("Graphviz 安装完成")
-    else:
-        print(f"Graphviz 已就绪: {result.stdout.strip()}")
+def check_dot_available() -> bool:
+    """检测 dot 命令是否可用（只检测不安装，避免安全风险）"""
+    try:
+        result = subprocess.run(
+            ["which", "dot"], capture_output=True, text=True, timeout=5
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
 
 
 def render_dot_to_png(dot_text: str, output_path: str,
@@ -405,6 +420,15 @@ def render_dot_to_png(dot_text: str, output_path: str,
     返回:
         dict: {"path": str, "width_cm": float, "height_cm": float, "dpi": int}
     """
+    # 惰性检测：首次调用时检查 dot 是否可用
+    if not check_dot_available():
+        raise RuntimeError(
+            "Graphviz (dot) 命令不可用。请安装 Graphviz：\n"
+            "  Ubuntu/Debian: sudo apt-get install graphviz\n"
+            "  macOS: brew install graphviz\n"
+            "  Windows: https://graphviz.org/download/"
+        )
+
     # 确定尺寸（英寸）
     if column == "single":
         width_inch = SINGLE_COL_CM / 2.54

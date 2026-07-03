@@ -7,11 +7,13 @@
 
 import subprocess
 import os
+import sys
 from weasyprint import HTML
 
 FONT_PATH = '/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc'
 FONT_BOLD_PATH = '/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc'
-OUTPUT = '/app/data/所有对话/主对话/table1_three_line.png'
+# 输出路径 — AI 使用前改为目标路径
+OUTPUT = './table1_three_line.png'
 TABLE_W_CM = 17.0
 
 rows_data = [
@@ -148,8 +150,10 @@ tr.headline-row td:last-child {{
 </html>'''
 
 # ── HTML → PDF (WeasyPrint) ──
-html_path = '/app/data/所有对话/主对话/table1_three_line.html'
-pdf_path = '/app/data/所有对话/主对话/table1_three_line.pdf'
+base = os.path.dirname(OUTPUT) or '.'
+os.makedirs(base, exist_ok=True)
+html_path = os.path.join(base, 'table1_three_line.html')
+pdf_path = os.path.join(base, 'table1_three_line.pdf')
 
 with open(html_path, 'w', encoding='utf-8') as f:
     f.write(html)
@@ -159,11 +163,14 @@ print(f'PDF: {pdf_path}')
 
 # ── PDF → PNG (pdftoppm 300dpi) ──
 out_base = OUTPUT.replace('.png', '')
-subprocess.run([
-    'pdftoppm', '-png', '-r', '300',
-    '-singlefile',
-    pdf_path, out_base
-], capture_output=True, text=True)
+try:
+    subprocess.run(
+        ['pdftoppm', '-png', '-r', '300', '-singlefile', pdf_path, out_base],
+        capture_output=True, text=True, timeout=30, check=True,
+    )
+except Exception as e:
+    print(f'[安全] pdftoppm 渲染失败(降级方案: 跳过): {e}')
+    sys.exit(1)
 
 # ── 裁剪白边并验证 ──
 from PIL import Image

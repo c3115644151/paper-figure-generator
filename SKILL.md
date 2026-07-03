@@ -232,7 +232,9 @@ exec(open('./gen_three_line.py', encoding='utf-8').read())
 - **缺失数据**：在图中标注缺失区域，用虚线连接
 - **负值数据**：柱状图用不同颜色区分正负
 - **用户无数据**：使用 `generate_sample_data()` 生成示例数据，标注"示例数据"
-- **SciencePlots / graphviz / WeasyPrint / pdftoppm 未安装**：各函数内部自动安装，无需手动处理
+- **SciencePlots 未安装**：函数内部自动尝试安装（scienceplots），失败时自动降级为内置论文级 rcParams，不影响出图
+- **graphviz (dot) 未安装**：render_dot_to_png 首次调用时自动检测并提示安装命令，不会自动安装系统包
+- **WeasyPrint / pdftoppm 未安装**：需环境预装，脚本执行时自动检测；pdftoppm 失败时有保护性退出
 - **期刊要求不明确**：默认使用通用学术规范（science样式，单栏）
 - **三线表字体加载失败**：自动回退到 Noto Sans CJK SC
 - **DOT 语法错误**：检查括号和引号是否闭合；Graphviz 会报告具体错误行号
